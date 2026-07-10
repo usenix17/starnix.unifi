@@ -23,9 +23,14 @@ Design doc: `~/ArgoCD/starnix_unifi_design.md`. Live schema ground truth:
       clean). recreate flag guards a type change; dup name -> fail. 9 unit
       tests. **Verified live: full create/modify/delete idempotency gate.**
 
+- [x] `unifi_firewall_policy` -- the centerpiece. Opaque action/source/dest/
+      ipProtocolScope/schedule pass-through; adopts USER_DEFINED only (refuses
+      DERIVED/SYSTEM_DEFINED by id); connectionStateFilter order-insensitive;
+      full-replace PUT; required_if on present. 10 unit tests. **Verified live:
+      re-create IDEMPOTENT proves opaque objects converge (the design's key
+      bet).** Probed create/update body first (disabled policy, zero impact).
+
 ## Next
-- [ ] `unifi_firewall_policy` -- the template module (adopt USER_DEFINED only,
-      opaque trafficFilter/action, subset comparison, check_mode + diff)
 - [ ] `unifi_firewall_zone`
 - [ ] `unifi_firewall_policy_order` -- wraps the ordering endpoint
 - [ ] `unifi_network` -- probe the network write schema first
