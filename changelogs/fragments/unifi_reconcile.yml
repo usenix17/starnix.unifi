@@ -1,0 +1,7 @@
+---
+minor_changes:
+  - unifi_reconcile - new module that reconciles the entire firewall, network,
+    and DHCP state (traffic-matching lists, zones, networks, policies, policy
+    ordering, and per-network DHCP) in a single invocation. It fetches each
+    collection once, diffs in memory, and writes only the drift, so managing
+    many resources is fast where looping the per-resource modules is slow.

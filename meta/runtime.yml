@@ -12,4 +12,5 @@ action_groups:
     - unifi_firewall_policy
     - unifi_firewall_policy_order
     - unifi_network
+    - unifi_reconcile
     - unifi_site_info

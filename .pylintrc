@@ -18,6 +18,8 @@ max-line-length=79
 max-args=10
 max-positional-arguments=10
 max-attributes=10
+# Reconcile functions legitimately carry many locals (current/desired/body/...).
+max-locals=20
 
 [BASIC]
 good-names=i,j,k,ex,_,e,um
