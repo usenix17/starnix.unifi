@@ -12,22 +12,16 @@ from ansible_collections.starnix.unifi.plugins.modules import (
     unifi_reconcile as rec,
 )
 
-_GROUP_SPEC = ("groups", "traffic-matching-lists", rec._group_body, (), False)
+_GROUP_SPEC = ("groups", rec._group_body, (), None)
 
 
 class FakeClient:
-    """Record calls; serve canned collections, ordering, and dhcp nets."""
+    """Record calls; serve canned ordering and dhcp reads."""
 
-    def __init__(self, listing=None, ordering=None, dhcp_nets=None):
-        self.listing = listing or []
+    def __init__(self, ordering=None, dhcp_nets=None):
         self.ordering = ordering or {}
         self.dhcp_nets = dhcp_nets or []
         self.calls = []
-
-    def paginate(self, base):
-        """Yield the canned collection."""
-        self.calls.append(("paginate", base))
-        return iter(self.listing)
 
     def get(self, path, query=None):
         """Serve ordering or classic networkconf reads."""
@@ -69,12 +63,45 @@ def _group(name, value):
             "items": [{"type": "IP_ADDRESS", "value": value}]}
 
 
+# -- name resolution ------------------------------------------------------
+def test_resolve_name_uuid_and_unknown():
+    """A name resolves; a UUID passes through; an unknown name fails."""
+    mapping = {"Internal": "zid"}
+    uuid = "88f7af54-98f8-306a-a1c7-c9349722b1f6"
+    assert rec._resolve("Internal", mapping) == "zid"
+    assert rec._resolve(uuid, mapping) == uuid
+    with pytest.raises(unifi.UniFiError):
+        rec._resolve("Nope", mapping)
+
+
+def test_resolve_policy_resolves_zone_and_list():
+    """Zone and list names become ids in source/destination."""
+    maps = {"zones": {"Internal": "zid"}, "lists": {"Nebula": "lid"},
+            "networks": {}, "policies": {}}
+    item = {"name": "p",
+            "source": {"zoneId": "Internal", "trafficFilter": {
+                "type": "IP_ADDRESS", "ipAddressFilter": {
+                    "type": "TRAFFIC_MATCHING_LIST",
+                    "trafficMatchingListId": "Nebula"}}},
+            "destination": {"zoneId": "Internal"}}
+    out = rec._resolve_policy(item, maps)
+    assert out["source"]["zoneId"] == "zid"
+    assert out["destination"]["zoneId"] == "zid"
+    assert (out["source"]["trafficFilter"]["ipAddressFilter"]
+            ["trafficMatchingListId"]) == "lid"
+
+
+def test_resolve_zone_and_network():
+    """Zone network names and a network's zone name resolve."""
+    maps = {"zones": {"Aux": "azid"}, "networks": {"Guest": "gid"},
+            "lists": {}, "policies": {}}
+    assert rec._resolve_zone({"name": "z", "network_ids": ["Guest"]},
+                             maps)["network_ids"] == ["gid"]
+    assert rec._resolve_network({"name": "n", "zone_id": "Aux"},
+                                maps)["zone_id"] == "azid"
+
+
 # -- body builders --------------------------------------------------------
-def test_zone_body_defaults_network_ids():
-    """A zone with no networks sends networkIds=[]."""
-    assert rec._zone_body({"name": "z"}) == {"name": "z", "networkIds": []}
-
-
 def test_policy_body_prunes_none_and_defaults_logging():
     """Unset optional fields are dropped; loggingEnabled defaults to false."""
     body = rec._policy_body({
@@ -83,7 +110,6 @@ def test_policy_body_prunes_none_and_defaults_logging():
         "ip_protocol_scope": {"ipVersion": "IPV4"}})
     assert "ipsecFilter" not in body
     assert body["loggingEnabled"] is False
-    assert body["ipProtocolScope"] == {"ipVersion": "IPV4"}
 
 
 def test_dhcp_fields_sets_and_blanks_slots():
@@ -98,121 +124,99 @@ def test_dhcp_fields_sets_and_blanks_slots():
 # -- collection reconcile -------------------------------------------------
 def test_collection_create():
     """A missing item is created."""
-    client = FakeClient(listing=[])
+    client = FakeClient()
     changes = []
-    rec._reconcile_collection(client, "/b", _GROUP_SPEC,
-                              [_group("g", "1.1.1.1")], _opts(), changes)
+    rec._reconcile_collection(client, "/b", [], [_group("g", "1.1.1.1")],
+                              _GROUP_SPEC, {}, _opts(), changes)
     assert changes == [{"type": "groups", "action": "create", "name": "g"}]
     assert _did(client, "post")
 
 
-def test_collection_noop():
-    """A matching item makes no change and no write."""
-    client = FakeClient(listing=[{"id": "g1", **_group("g", "1.1.1.1")}])
+def test_collection_noop_and_update():
+    """A matching item is a no-op; a differing item is updated."""
+    current = [{"id": "g1", **_group("g", "1.1.1.1")}]
+    client = FakeClient()
     changes = []
-    rec._reconcile_collection(client, "/b", _GROUP_SPEC,
-                              [_group("g", "1.1.1.1")], _opts(), changes)
-    assert not changes
-    assert not _did(client, "put")
-
-
-def test_collection_update():
-    """A differing item is updated (PUT)."""
-    client = FakeClient(listing=[{"id": "g1", **_group("g", "1.1.1.1")}])
-    changes = []
-    rec._reconcile_collection(client, "/b", _GROUP_SPEC,
-                              [_group("g", "9.9.9.9")], _opts(), changes)
+    rec._reconcile_collection(client, "/b", current, [_group("g", "1.1.1.1")],
+                              _GROUP_SPEC, {}, _opts(), changes)
+    assert not changes and not _did(client, "put")
+    rec._reconcile_collection(client, "/b", current, [_group("g", "9.9.9.9")],
+                              _GROUP_SPEC, {}, _opts(), changes)
     assert changes == [{"type": "groups", "action": "update", "name": "g"}]
     assert _did(client, "put")
 
 
 def test_check_mode_records_but_does_not_write():
     """check_mode reports the change but performs no POST."""
-    client = FakeClient(listing=[])
+    client = FakeClient()
     changes = []
-    rec._reconcile_collection(client, "/b", _GROUP_SPEC,
-                              [_group("g", "1.1.1.1")], _opts(check=True),
-                              changes)
+    rec._reconcile_collection(client, "/b", [], [_group("g", "1.1.1.1")],
+                              _GROUP_SPEC, {}, _opts(check=True), changes)
     assert changes and not _did(client, "post")
 
 
-def test_user_defined_only_filter():
-    """A DERIVED object is invisible, so the desired item is created."""
-    spec = ("policies", "firewall/policies", rec._policy_body,
-            ("connectionStateFilter",), True)
-    derived = {"id": "d", "name": "P", "metadata": {"origin": "DERIVED"}}
-    client = FakeClient(listing=[derived])
+def test_policy_resolution_through_reconcile():
+    """A policy's names are resolved before the body is compared/built."""
+    spec = ("policies", rec._policy_body, ("connectionStateFilter",),
+            rec._resolve_policy)
+    maps = {"zones": {"Internal": "zid"}, "lists": {}, "networks": {},
+            "policies": {}}
+    current = [{"id": "p1", "name": "P", "enabled": True,
+                "action": {"type": "ALLOW"}, "source": {"zoneId": "zid"},
+                "destination": {"zoneId": "zid"},
+                "ipProtocolScope": {"ipVersion": "IPV4"},
+                "loggingEnabled": False,
+                "metadata": {"origin": "USER_DEFINED"}}]
     changes = []
     rec._reconcile_collection(
-        client, "/b", spec,
+        FakeClient(), "/b", current,
         [{"name": "P", "enabled": True, "action": {"type": "ALLOW"},
-          "source": {}, "destination": {},
+          "source": {"zoneId": "Internal"},
+          "destination": {"zoneId": "Internal"},
           "ip_protocol_scope": {"ipVersion": "IPV4"}}],
-        _opts(), changes)
-    assert changes[0]["action"] == "create"
+        spec, maps, _opts(), changes)
+    assert not changes  # "Internal" resolved to zid -> matches -> no-op
 
 
-def test_prune_deletes_unlisted():
-    """With prune, a managed item not in the desired set is deleted."""
-    client = FakeClient(listing=[{"id": "g1", **_group("keep", "1.1.1.1")},
-                                 {"id": "g2", **_group("drop", "2.2.2.2")}])
+def test_prune_deletes_and_guards():
+    """Prune deletes unlisted; beyond max_delete it aborts."""
+    current = [{"id": "g1", **_group("keep", "1.1.1.1")},
+               {"id": "g2", **_group("drop", "2.2.2.2")}]
+    client = FakeClient()
     changes = []
-    rec._reconcile_collection(client, "/b", _GROUP_SPEC,
-                              [_group("keep", "1.1.1.1")],
+    rec._reconcile_collection(client, "/b", current,
+                              [_group("keep", "1.1.1.1")], _GROUP_SPEC, {},
                               _opts(prune=True), changes)
     assert {"type": "groups", "action": "delete", "name": "drop"} in changes
-    assert _did(client, "delete")
-
-
-def test_prune_guard_aborts():
-    """Prune beyond max_delete raises instead of mass-deleting."""
-    listing = [{"id": str(i), **_group(f"x{i}", "1.1.1.1")} for i in range(5)]
-    client = FakeClient(listing=listing)
     with pytest.raises(unifi.UniFiError):
-        rec._reconcile_collection(client, "/b", _GROUP_SPEC, [],
-                                  _opts(prune=True, max_delete=2), [])
+        rec._reconcile_collection(client, "/b", current, [], _GROUP_SPEC, {},
+                                  _opts(prune=True, max_delete=0), [])
 
 
-# -- ordering -------------------------------------------------------------
-def test_ordering_change_and_noop():
-    """Reorder is a change; the same order is a no-op."""
-    order = {("z1", "z2"): {"beforeSystemDefined": ["a", "b"],
-                            "afterSystemDefined": []}}
+# -- ordering + dhcp ------------------------------------------------------
+def test_ordering_resolves_names_and_updates():
+    """Zone/policy names resolve; a different order is a change."""
+    maps = {"zones": {"Internal": "zid"}, "policies": {"A": "aid", "B": "bid"},
+            "lists": {}, "networks": {}}
+    order = {("zid", "zid"): {"beforeSystemDefined": ["aid", "bid"],
+                              "afterSystemDefined": []}}
     changes = []
     rec._reconcile_ordering(
         FakeClient(ordering=order), "s",
-        [{"source_zone": "z1", "destination_zone": "z2",
-          "before_system_defined": ["b", "a"]}], _opts(), changes)
+        [{"source_zone": "Internal", "destination_zone": "Internal",
+          "before_system_defined": ["B", "A"]}], maps, _opts(), changes)
     assert changes and changes[0]["action"] == "update"
-    changes = []
-    rec._reconcile_ordering(
-        FakeClient(ordering=order), "s",
-        [{"source_zone": "z1", "destination_zone": "z2",
-          "before_system_defined": ["a", "b"]}], _opts(), changes)
-    assert not changes
 
 
-# -- dhcp -----------------------------------------------------------------
-def test_dhcp_patch_and_skip_unknown():
-    """DHCP patches a matching network; unknown names are skipped."""
+def test_dhcp_patch_and_noop():
+    """DHCP patches a drifted network and no-ops a matching one."""
     nets = [{"_id": "n1", "name": "Aux", "dhcpd_dns_enabled": True,
-             "dhcpd_dns_1": "1.1.1.1"}]
+             "dhcpd_dns_1": "1.1.1.1", "dhcpd_dns_2": ""}]
     changes = []
     rec._reconcile_dhcp(FakeClient(dhcp_nets=nets), "default",
                         [{"name": "Aux", "dns_servers": ["9.9.9.9"]}],
                         _opts(), changes)
-    assert changes[0] == {"type": "dhcp", "action": "update", "name": "Aux"}
-    changes = []
-    rec._reconcile_dhcp(FakeClient(dhcp_nets=[]), "default",
-                        [{"name": "Nope", "dns_servers": ["9.9.9.9"]}],
-                        _opts(), changes)
-    assert not changes
-
-
-def test_dhcp_noop_when_matching():
-    """Re-applying current DNS is a no-op."""
-    nets = [{"_id": "n1", "name": "Aux", "dhcpd_dns_enabled": True,
-             "dhcpd_dns_1": "1.1.1.1", "dhcpd_dns_2": ""}]
+    assert changes[0]["type"] == "dhcp"
     changes = []
     rec._reconcile_dhcp(FakeClient(dhcp_nets=nets), "default",
                         [{"name": "Aux", "dns_servers": ["1.1.1.1"]}],

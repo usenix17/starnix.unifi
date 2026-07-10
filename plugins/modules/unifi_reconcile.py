@@ -11,14 +11,16 @@ version_added: "0.1.0"
 description:
   - Bulk equivalent of the per-resource modules. Given the desired lists of
     lists, zones, networks, policies, ordering, and per-network DHCP options,
-    it fetches each collection B(once), compares
-    in memory, and writes B(only) the drift -- all in one module process.
+    it fetches each collection B(once), compares in memory, and writes B(only)
+    the drift -- all in one module process.
   - Use this instead of looping the singular modules when you manage many
     resources; a full reconcile that would take minutes as per-resource tasks
-    completes in seconds here (one process instead of one per resource).
-  - Each list element has the same shape as the corresponding singular module's
-    parameters (opaque objects such as C(action)/C(source)/C(destination) are
-    passed through verbatim; cross-references must already be UUIDs).
+    completes in seconds here.
+  - "Cross-references are given by B(name), not UUID: a policy's C(zoneId), a
+    C(trafficMatchingListId), C(networkIds), a network's C(zone_id), a zone's
+    C(network_ids), and the ordering zones/policies are all resolved to ids
+    from the live controller (a value that is already a UUID passes through).
+    So the desired lists never contain UUIDs."
   - Matching is by C(name) (unique). Only user-defined zones and policies are
     considered. DHCP patches existing networks by name; unknown names are
     skipped. The classic API is used for DHCP (see O(classic_site)).
@@ -37,6 +39,7 @@ options:
   zones:
     description:
       - Desired firewall zones; see M(starnix.unifi.unifi_firewall_zone).
+        C(network_ids) elements are network names.
     type: list
     elements: dict
     default: []
@@ -55,8 +58,8 @@ options:
   ordering:
     description:
       - Desired policy ordering per zone pair. Each element has C(source_zone),
-        C(destination_zone) (zone UUIDs) and C(before_system_defined) /
-        C(after_system_defined) (policy UUID lists).
+        C(destination_zone) (zone names) and C(before_system_defined) /
+        C(after_system_defined) (policy name lists).
     type: list
     elements: dict
     default: []
@@ -112,6 +115,8 @@ changes:
 
 # Imports follow the documentation variables, as required by ansible-test
 # validate-modules.
+import re
+
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
     UniFiClient,
@@ -120,6 +125,86 @@ from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
     prune,
     unifi_argument_spec,
 )
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+_DHCP_SLOTS = {"dns_servers": ("dhcpd_dns", 4),
+               "ntp_servers": ("dhcpd_ntp", 2),
+               "wins_servers": ("dhcpd_wins", 2)}
+
+
+def _name_map(objects):
+    """Return a name->id map for a fetched collection."""
+    out = {}
+    for obj in objects:
+        out.setdefault(obj["name"], obj["id"])
+    return out
+
+
+def _user_defined(objects):
+    """Filter to the user-manageable (USER_DEFINED) objects."""
+    return [o for o in objects
+            if (o.get("metadata") or {}).get("origin") == "USER_DEFINED"]
+
+
+def _resolve(value, mapping):
+    """Resolve a name to its id; a UUID (or None) passes through unchanged."""
+    if value is None or _UUID_RE.match(str(value)):
+        return value
+    if value not in mapping:
+        raise UniFiError(f"unknown name {value!r} (no matching resource)")
+    return mapping[value]
+
+
+def _resolve_filter(tfilter, maps):
+    """Resolve list/network names inside a policy trafficFilter."""
+    out = dict(tfilter)
+    for sub in ("ipAddressFilter", "portFilter"):
+        node = tfilter.get(sub)
+        if node and "trafficMatchingListId" in node:
+            out[sub] = {**node, "trafficMatchingListId":
+                        _resolve(node["trafficMatchingListId"], maps["lists"])}
+    net = tfilter.get("networkFilter")
+    if net and net.get("networkIds"):
+        out["networkFilter"] = {**net, "networkIds":
+                                [_resolve(i, maps["networks"])
+                                 for i in net["networkIds"]]}
+    return out
+
+
+def _resolve_side(side, maps):
+    """Resolve zone/list/network names in a policy source or destination."""
+    out = {}
+    for key, val in side.items():
+        if key == "zoneId":
+            out[key] = _resolve(val, maps["zones"])
+        elif key == "trafficFilter":
+            out[key] = _resolve_filter(val, maps)
+        else:
+            out[key] = val
+    return out
+
+
+def _resolve_policy(item, maps):
+    """Return a copy of a policy with its zone/list/network names resolved."""
+    out = dict(item)
+    out["source"] = _resolve_side(item["source"], maps)
+    out["destination"] = _resolve_side(item["destination"], maps)
+    return out
+
+
+def _resolve_zone(item, maps):
+    """Resolve a zone's member network names to ids."""
+    return {**item, "network_ids": [_resolve(n, maps["networks"])
+                                    for n in item.get("network_ids") or []]}
+
+
+def _resolve_network(item, maps):
+    """Resolve a network's firewall-zone name to an id."""
+    if item.get("zone_id"):
+        return {**item, "zone_id": _resolve(item["zone_id"], maps["zones"])}
+    return item
 
 
 def _group_body(item):
@@ -152,55 +237,6 @@ def _policy_body(item):
     })
 
 
-# param name -> (v1 sub-path, body builder, set_keys, user-defined-only)
-_COLLECTIONS = [
-    ("groups", "traffic-matching-lists", _group_body, (), False),
-    ("zones", "firewall/zones", _zone_body, ("networkIds",), True),
-    ("networks", "networks", _network_body, (), False),
-    ("policies", "firewall/policies", _policy_body,
-     ("connectionStateFilter",), True),
-]
-
-_DHCP_SLOTS = {"dns_servers": ("dhcpd_dns", 4),
-               "ntp_servers": ("dhcpd_ntp", 2),
-               "wins_servers": ("dhcpd_wins", 2)}
-
-
-def _manageable(objects, user_only):
-    """Filter to the objects this module may manage."""
-    if not user_only:
-        return list(objects)
-    return [o for o in objects
-            if (o.get("metadata") or {}).get("origin") == "USER_DEFINED"]
-
-
-def _reconcile_collection(client, base, spec, desired, opts, changes):
-    """Create/update (and optionally prune) one name-matched collection."""
-    param, _path, build, set_keys, user_only = spec
-    current = _manageable(client.paginate(base), user_only)
-    by_name = {}
-    for obj in current:
-        by_name.setdefault(obj["name"], obj)
-    wanted = set()
-    for item in desired:
-        wanted.add(item["name"])
-        body = build(item)
-        cur = by_name.get(item["name"])
-        if cur is None:
-            if not opts["check"]:
-                client.post(base, body=body)
-            changes.append({"type": param, "action": "create",
-                            "name": item["name"]})
-        elif needs_update(body, cur, set_keys=set(set_keys))[0]:
-            if not opts["check"]:
-                client.put(f"{base}/{cur['id']}", body=body)
-            changes.append({"type": param, "action": "update",
-                            "name": item["name"]})
-    if opts["prune"]:
-        _prune_collection(client, base, param, current, wanted, opts,
-                          changes)
-
-
 def _prune_collection(client, base, param, current, wanted, opts, changes):
     """Delete managed objects of one type that are not in the desired set."""
     stale = [o for o in current if o["name"] not in wanted]
@@ -215,16 +251,46 @@ def _prune_collection(client, base, param, current, wanted, opts, changes):
                         "name": obj["name"]})
 
 
-def _reconcile_ordering(client, site_id, desired, opts, changes):
+def _reconcile_collection(client, base, current, desired, spec, maps, opts,
+                          changes):
+    """Create/update (and optionally prune) one name-matched collection."""
+    param, build, set_keys, resolve = spec
+    by_name = {}
+    for obj in current:
+        by_name.setdefault(obj["name"], obj)
+    wanted = set()
+    for item in desired:
+        wanted.add(item["name"])
+        body = build(resolve(item, maps) if resolve else item)
+        cur = by_name.get(item["name"])
+        if cur is None:
+            if not opts["check"]:
+                client.post(base, body=body)
+            changes.append({"type": param, "action": "create",
+                            "name": item["name"]})
+        elif needs_update(body, cur, set_keys=set(set_keys))[0]:
+            if not opts["check"]:
+                client.put(f"{base}/{cur['id']}", body=body)
+            changes.append({"type": param, "action": "update",
+                            "name": item["name"]})
+    if opts["prune"]:
+        _prune_collection(client, base, param, current, wanted, opts, changes)
+
+
+def _reconcile_ordering(client, site_id, desired, maps, opts, changes):
     """Set the evaluation order for each declared zone pair."""
     path = f"/v1/sites/{site_id}/firewall/policies/ordering"
     for item in desired:
-        query = {"sourceFirewallZoneId": item["source_zone"],
-                 "destinationFirewallZoneId": item["destination_zone"]}
+        src = _resolve(item["source_zone"], maps["zones"])
+        dst = _resolve(item["destination_zone"], maps["zones"])
+        query = {"sourceFirewallZoneId": src, "destinationFirewallZoneId": dst}
+        before = [_resolve(p, maps["policies"])
+                  for p in item.get("before_system_defined") or []]
+        after = [_resolve(p, maps["policies"])
+                 for p in item.get("after_system_defined") or []]
+        want = {"beforeSystemDefined": before, "afterSystemDefined": after}
         cur = (client.get(path, query=query)
                .get("orderedFirewallPolicyIds") or {})
-        want = {"beforeSystemDefined": item.get("before_system_defined") or [],
-                "afterSystemDefined": item.get("after_system_defined") or []}
         have = {"beforeSystemDefined": cur.get("beforeSystemDefined") or [],
                 "afterSystemDefined": cur.get("afterSystemDefined") or []}
         if have != want:
@@ -277,21 +343,44 @@ def _client(params, base_path):
         timeout=params["timeout"], api_base_path=base_path)
 
 
+def _reconcile_v1(params, opts, changes):
+    """Fetch every v1 collection once, build name maps, and reconcile."""
+    client = _client(params, params["api_base_path"])
+    site_id = client.resolve_site(params["site"])
+    base = f"/v1/sites/{site_id}"
+    zones = list(client.paginate(f"{base}/firewall/zones"))
+    lists = list(client.paginate(f"{base}/traffic-matching-lists"))
+    nets = list(client.paginate(f"{base}/networks"))
+    pols = _user_defined(list(client.paginate(f"{base}/firewall/policies")))
+    maps = {"zones": _name_map(zones), "lists": _name_map(lists),
+            "networks": _name_map(nets), "policies": _name_map(pols)}
+    plan = [
+        (f"{base}/traffic-matching-lists", lists, params["groups"],
+         ("groups", _group_body, (), None)),
+        (f"{base}/firewall/zones", _user_defined(zones), params["zones"],
+         ("zones", _zone_body, ("networkIds",), _resolve_zone)),
+        (f"{base}/networks", nets, params["networks"],
+         ("networks", _network_body, (), _resolve_network)),
+        (f"{base}/firewall/policies", pols, params["policies"],
+         ("policies", _policy_body, ("connectionStateFilter",),
+          _resolve_policy)),
+    ]
+    for path, current, desired, spec in plan:
+        _reconcile_collection(client, path, current, desired, spec, maps, opts,
+                              changes)
+    _reconcile_ordering(client, site_id, params["ordering"], maps, opts,
+                        changes)
+
+
 def run(module):
     """Reconcile every provided resource type in a single process."""
     params = module.params
     opts = {"check": module.check_mode, "prune": params["prune"],
             "max_delete": params["max_delete"]}
     changes = []
-    v1 = _client(params, params["api_base_path"])
-    site_id = v1.resolve_site(params["site"])
-    for spec in _COLLECTIONS:
-        if params[spec[0]]:
-            base = f"/v1/sites/{site_id}/{spec[1]}"
-            _reconcile_collection(v1, base, spec, params[spec[0]], opts,
-                                  changes)
-    if params["ordering"]:
-        _reconcile_ordering(v1, site_id, params["ordering"], opts, changes)
+    if any(params[t] for t in
+           ("groups", "zones", "networks", "policies", "ordering")):
+        _reconcile_v1(params, opts, changes)
     if params["dhcp"]:
         classic = _client(params, "/proxy/network")
         _reconcile_dhcp(classic, params["classic_site"], params["dhcp"],
