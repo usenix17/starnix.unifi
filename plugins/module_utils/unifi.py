@@ -212,7 +212,19 @@ class UniFiModule:
             ca_path=params.get("ca_path"), timeout=params["timeout"],
             api_base_path=params["api_base_path"],
         )
-        self.site_id = self.client.resolve_site(params["site"])
+        self._site_id = None
+
+    @property
+    def site_id(self):
+        """Resolve (once, lazily) and return the site UUID for this run.
+
+        Deferred so read-only modules that never touch a site-scoped path
+        (e.g. ``unifi_site_info``) work even on a multi-site controller.
+        """
+        if self._site_id is None:
+            self._site_id = self.client.resolve_site(
+                self.module.params["site"])
+        return self._site_id
 
     def fail(self, msg, **kwargs):
         """Fail the module run with ``msg`` and optional extra fields."""

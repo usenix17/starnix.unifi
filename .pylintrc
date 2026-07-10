@@ -1,7 +1,7 @@
 [MAIN]
-# Modules import ansible-core at runtime; keep pylint from choking on the
-# dynamically-provided collection loader paths.
-ignore-paths=^tests/.*$
+# Make the collection importable as ansible_collections.starnix.unifi.* so
+# pylint resolves intra-collection imports. Run pylint from the collection root.
+init-hook='import os, sys; sys.path.insert(0, os.path.abspath("../../.."))'
 
 [FORMAT]
 max-line-length=79
@@ -13,4 +13,4 @@ max-positional-arguments=10
 max-attributes=10
 
 [BASIC]
-good-names=i,j,k,ex,_,e
+good-names=i,j,k,ex,_,e,um

@@ -10,12 +10,14 @@ Design doc: `~/ArgoCD/starnix_unifi_design.md`. Live schema ground truth:
       LICENSE, .gitignore, .pylintrc, test dirs)
 - [x] `plugins/module_utils/unifi.py` -- client, arg spec, diff helpers
 - [x] `plugins/doc_fragments/auth.py` -- shared connection options
+- [x] `unifi_site_info` -- read-only; proves the arg-spec + client + module
+      stack end to end. Verified live (app version 10.4.57, site UUID). Made
+      `UniFiModule.site_id` lazy so info modules skip site resolution.
+- [x] Unit tests: `module_utils` (17 tests -- paginate offset-by-count, error
+      envelope, site resolution, subset_equal/needs_update/prune) + site_info.
+      pylint 10/10, pycodestyle clean, 17/17 pass.
 
 ## Next
-- [ ] `unifi_site_info` -- simplest module; proves the arg-spec + client + module
-      stack end to end (read-only, GET /v1/sites)
-- [ ] Unit test for `module_utils` (paginate offset math, subset_equal, site
-      resolution) -- no network
 - [ ] `unifi_firewall_group` (traffic-matching-lists) -- confirm POST/PUT body
       vs the read shape first
 - [ ] `unifi_firewall_policy` -- the template module (adopt USER_DEFINED only,
