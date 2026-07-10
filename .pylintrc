@@ -3,6 +3,11 @@
 # pylint resolves intra-collection imports. Run pylint from the collection root.
 init-hook='import os, sys; sys.path.insert(0, os.path.abspath("../../.."))'
 
+[MESSAGES CONTROL]
+# R0801 (duplicate-code) fires on the small, repeated test-double boilerplate
+# across unit tests; it is noisy by design there and not actionable.
+disable=duplicate-code
+
 [FORMAT]
 max-line-length=79
 

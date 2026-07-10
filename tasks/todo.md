@@ -17,9 +17,13 @@ Design doc: `~/ArgoCD/starnix_unifi_design.md`. Live schema ground truth:
       envelope, site resolution, subset_equal/needs_update/prune) + site_info.
       pylint 10/10, pycodestyle clean, 17/17 pass.
 
+- [x] `unifi_firewall_group` (traffic-matching-lists) -- first write module.
+      Probed the live write schema (body {type,name,items}; items required
+      non-empty; type in IPV4_ADDRESSES/IPV6_ADDRESSES/PORTS; GET-by-id 404s
+      clean). recreate flag guards a type change; dup name -> fail. 9 unit
+      tests. **Verified live: full create/modify/delete idempotency gate.**
+
 ## Next
-- [ ] `unifi_firewall_group` (traffic-matching-lists) -- confirm POST/PUT body
-      vs the read shape first
 - [ ] `unifi_firewall_policy` -- the template module (adopt USER_DEFINED only,
       opaque trafficFilter/action, subset comparison, check_mode + diff)
 - [ ] `unifi_firewall_zone`
