@@ -33,7 +33,10 @@ Design doc: `~/ArgoCD/starnix_unifi_design.md`. Live schema ground truth:
 ## Next
 - [x] `unifi_firewall_zone` -- {name, networkIds}; networkIds required (default []), order-insensitive; system-zone rejection deferred to API. 9 unit tests, verified live (zones back to 7).
 - [x] `unifi_firewall_policy_order` -- strict full-replace of before/after-system-defined buckets, positional compare, absent rejected. 5 unit tests. Verified live (throwaway zone + 2 disabled policies: set/reorder/idempotent).
-- [ ] `unifi_network` -- probe the network write schema first
+- [x] `unifi_network` -- manages name/enabled/vlanId/management/zone/dhcp-guarding.
+      management corrected to {GATEWAY,UNMANAGED}; zoneId carried forward on
+      update (bare PUT nulls it). 11 unit tests, verified live. **SCOPE: v1 has
+      NO DHCP-DNS/subnet fields -> does NOT durably fix Aux DNS (needs classic API).**
 - [ ] `ansible-test sanity` clean; integration targets; CI matrix; Galaxy publish
 
 ## Notes / open API questions (confirm before the affected module ships)
