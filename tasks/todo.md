@@ -42,8 +42,12 @@ Design doc: `~/ArgoCD/starnix_unifi_design.md`. Live schema ground truth:
       gated `unsupported`); all 8 pass via `ansible-test integration --local`
 - [x] CI: .github/workflows/ci.yml (sanity + units on 2.21, changelog gate,
       self-hosted gated integration job); initial changelog fragment
-- [ ] Galaxy publish: bump to 1.0.0, `antsibull-changelog release`,
-      `ansible-galaxy collection build`, push to a GitHub repo, publish
+- [x] `antsibull-changelog release` (CHANGELOG.rst) + `ansible-galaxy
+      collection build` -> starnix-unifi-0.1.0.tar.gz (verified no key inside)
+- [x] GitHub repo usenix17/starnix.unifi created (PRIVATE) + pushed; CI wired
+- [ ] Galaxy publish (your call): make repo public if desired, then
+      `ansible-galaxy collection publish starnix-unifi-0.1.0.tar.gz`
+      with your Galaxy API token (a step you run -- I won't handle the token)
 
 ## Notes / open API questions (confirm before the affected module ships)
 - `action.type`: is `REJECT` valid? (only ALLOW/BLOCK observed)
