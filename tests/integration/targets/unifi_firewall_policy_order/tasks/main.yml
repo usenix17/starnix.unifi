@@ -1,0 +1,68 @@
+---
+- name: unifi_firewall_policy_order integration
+  vars:
+    ozone: zzz-iac-int-ordzone
+  module_defaults:
+    group/starnix.unifi.unifi:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+      site: default
+  block:
+    - name: Create a throwaway zone
+      starnix.unifi.unifi_firewall_zone: {name: "{{ ozone }}", network_ids: []}
+      register: z
+    - ansible.builtin.set_fact:
+        zid: "{{ z.firewall_zone.id }}"
+
+    - name: Create two disabled policies in the zone pair
+      starnix.unifi.unifi_firewall_policy:
+        name: "{{ item }}"
+        enabled: false
+        action: {type: ALLOW, allowReturnTraffic: false}
+        source: {zoneId: "{{ zid }}"}
+        destination: {zoneId: "{{ zid }}"}
+        ip_protocol_scope: {ipVersion: IPV4}
+      loop: [zzz-iac-int-ordA, zzz-iac-int-ordB]
+      register: created
+
+    - ansible.builtin.set_fact:
+        aid: "{{ created.results[0].firewall_policy.id }}"
+        bid: "{{ created.results[1].firewall_policy.id }}"
+
+    - name: Set the order [A, B]
+      starnix.unifi.unifi_firewall_policy_order:
+        source_zone_id: "{{ zid }}"
+        destination_zone_id: "{{ zid }}"
+        before_system_defined: ["{{ aid }}", "{{ bid }}"]
+
+    - name: Set the same order again is idempotent
+      starnix.unifi.unifi_firewall_policy_order:
+        source_zone_id: "{{ zid }}"
+        destination_zone_id: "{{ zid }}"
+        before_system_defined: ["{{ aid }}", "{{ bid }}"]
+      register: same
+    - ansible.builtin.assert: {that: not same.changed}
+
+    - name: Reorder [B, A] is a change
+      starnix.unifi.unifi_firewall_policy_order:
+        source_zone_id: "{{ zid }}"
+        destination_zone_id: "{{ zid }}"
+        before_system_defined: ["{{ bid }}", "{{ aid }}"]
+      register: reordered
+    - ansible.builtin.assert: {that: reordered.changed}
+
+    - name: Reorder [B, A] again is idempotent
+      starnix.unifi.unifi_firewall_policy_order:
+        source_zone_id: "{{ zid }}"
+        destination_zone_id: "{{ zid }}"
+        before_system_defined: ["{{ bid }}", "{{ aid }}"]
+      register: reordered2
+    - ansible.builtin.assert: {that: not reordered2.changed}
+
+  always:
+    - name: Teardown policies
+      starnix.unifi.unifi_firewall_policy: {name: "{{ item }}", state: absent}
+      loop: [zzz-iac-int-ordA, zzz-iac-int-ordB]
+    - name: Teardown zone
+      starnix.unifi.unifi_firewall_zone: {name: "{{ ozone }}", state: absent}

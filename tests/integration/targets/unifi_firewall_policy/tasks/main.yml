@@ -1,0 +1,73 @@
+---
+- name: unifi_firewall_policy integration
+  vars:
+    pol: zzz-iac-int-pol
+    polzone: zzz-iac-int-polzone
+  module_defaults:
+    group/starnix.unifi.unifi:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+      site: default
+  block:
+    - name: Create a throwaway zone to scope the policy
+      starnix.unifi.unifi_firewall_zone: {name: "{{ polzone }}", network_ids: []}
+      register: z
+    - ansible.builtin.set_fact:
+        zid: "{{ z.firewall_zone.id }}"
+
+    - name: Create a disabled policy
+      starnix.unifi.unifi_firewall_policy: &spec
+        name: "{{ pol }}"
+        enabled: false
+        action: {type: ALLOW, allowReturnTraffic: false}
+        source: {zoneId: "{{ zid }}"}
+        destination: {zoneId: "{{ zid }}"}
+        ip_protocol_scope: {ipVersion: IPV4}
+      register: r1
+    - ansible.builtin.assert: {that: r1.changed}
+
+    - name: Create again is idempotent (opaque objects converge)
+      starnix.unifi.unifi_firewall_policy: *spec
+      register: r2
+    - ansible.builtin.assert: {that: not r2.changed}
+
+    - name: Enable logging (a change)
+      starnix.unifi.unifi_firewall_policy:
+        name: "{{ pol }}"
+        enabled: false
+        logging_enabled: true
+        action: {type: ALLOW, allowReturnTraffic: false}
+        source: {zoneId: "{{ zid }}"}
+        destination: {zoneId: "{{ zid }}"}
+        ip_protocol_scope: {ipVersion: IPV4}
+      register: r3
+    - ansible.builtin.assert: {that: r3.changed}
+
+    - name: Check mode reports a change but does not write
+      starnix.unifi.unifi_firewall_policy:
+        name: "{{ pol }}"
+        enabled: true
+        action: {type: ALLOW, allowReturnTraffic: false}
+        source: {zoneId: "{{ zid }}"}
+        destination: {zoneId: "{{ zid }}"}
+        ip_protocol_scope: {ipVersion: IPV4}
+      check_mode: true
+      register: rc
+    - ansible.builtin.assert: {that: rc.changed}
+
+    - name: Delete
+      starnix.unifi.unifi_firewall_policy: {name: "{{ pol }}", state: absent}
+      register: rd
+    - ansible.builtin.assert: {that: rd.changed}
+
+    - name: Delete again is idempotent
+      starnix.unifi.unifi_firewall_policy: {name: "{{ pol }}", state: absent}
+      register: rd2
+    - ansible.builtin.assert: {that: not rd2.changed}
+
+  always:
+    - name: Teardown policy
+      starnix.unifi.unifi_firewall_policy: {name: "{{ pol }}", state: absent}
+    - name: Teardown zone
+      starnix.unifi.unifi_firewall_zone: {name: "{{ polzone }}", state: absent}

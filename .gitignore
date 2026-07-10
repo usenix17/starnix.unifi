@@ -5,3 +5,4 @@ __pycache__/
 .mypy_cache/
 tests/output/
 *.retry
+tests/integration/integration_config.yml

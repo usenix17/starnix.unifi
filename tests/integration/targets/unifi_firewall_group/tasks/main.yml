@@ -1,0 +1,82 @@
+---
+- name: unifi_firewall_group integration
+  vars:
+    grp: zzz-iac-int-group
+  module_defaults:
+    group/starnix.unifi.unifi:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+      site: default
+  block:
+    - name: Create
+      starnix.unifi.unifi_firewall_group:
+        name: "{{ grp }}"
+        type: IPV4_ADDRESSES
+        items:
+          - {type: IP_ADDRESS, value: 203.0.113.7}
+      register: r1
+    - ansible.builtin.assert: {that: r1.changed}
+
+    - name: Create again is idempotent
+      starnix.unifi.unifi_firewall_group:
+        name: "{{ grp }}"
+        type: IPV4_ADDRESSES
+        items:
+          - {type: IP_ADDRESS, value: 203.0.113.7}
+      register: r2
+    - ansible.builtin.assert: {that: not r2.changed}
+
+    - name: Modify the members
+      starnix.unifi.unifi_firewall_group:
+        name: "{{ grp }}"
+        type: IPV4_ADDRESSES
+        items:
+          - {type: IP_ADDRESS, value: 203.0.113.8}
+          - {type: SUBNET, value: 203.0.113.0/24}
+      register: r3
+    - ansible.builtin.assert: {that: r3.changed}
+
+    - name: Modify again is idempotent
+      starnix.unifi.unifi_firewall_group:
+        name: "{{ grp }}"
+        type: IPV4_ADDRESSES
+        items:
+          - {type: IP_ADDRESS, value: 203.0.113.8}
+          - {type: SUBNET, value: 203.0.113.0/24}
+      register: r4
+    - ansible.builtin.assert: {that: not r4.changed}
+
+    - name: Check mode reports a change but does not write
+      starnix.unifi.unifi_firewall_group:
+        name: "{{ grp }}"
+        type: IPV4_ADDRESSES
+        items:
+          - {type: IP_ADDRESS, value: 203.0.113.99}
+      check_mode: true
+      register: rc
+    - ansible.builtin.assert: {that: rc.changed}
+
+    - name: The check-mode change was not applied
+      starnix.unifi.unifi_firewall_group:
+        name: "{{ grp }}"
+        type: IPV4_ADDRESSES
+        items:
+          - {type: IP_ADDRESS, value: 203.0.113.8}
+          - {type: SUBNET, value: 203.0.113.0/24}
+      register: rc2
+    - ansible.builtin.assert: {that: not rc2.changed}
+
+    - name: Delete
+      starnix.unifi.unifi_firewall_group: {name: "{{ grp }}", state: absent}
+      register: rd
+    - ansible.builtin.assert: {that: rd.changed}
+
+    - name: Delete again is idempotent
+      starnix.unifi.unifi_firewall_group: {name: "{{ grp }}", state: absent}
+      register: rd2
+    - ansible.builtin.assert: {that: not rd2.changed}
+
+  always:
+    - name: Teardown
+      starnix.unifi.unifi_firewall_group: {name: "{{ grp }}", state: absent}

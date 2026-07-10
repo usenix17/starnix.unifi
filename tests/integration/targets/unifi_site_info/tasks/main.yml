@@ -1,0 +1,19 @@
+---
+- name: unifi_site_info integration
+  module_defaults:
+    group/starnix.unifi.unifi:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+  block:
+    - name: Query controller info and sites
+      starnix.unifi.unifi_site_info:
+      register: info
+
+    - name: It is read-only and returns a site UUID
+      ansible.builtin.assert:
+        that:
+          - info.changed is false
+          - info.application_version | length > 0
+          - info.sites | length >= 1
+          - info.sites[0].id is match('^[0-9a-f-]{36}$')

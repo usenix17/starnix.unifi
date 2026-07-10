@@ -1,0 +1,60 @@
+---
+- name: unifi_network integration
+  vars:
+    net: zzz-iac-int-net
+  module_defaults:
+    group/starnix.unifi.unifi:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+      site: default
+  block:
+    - name: Create a disabled VLAN-only network
+      starnix.unifi.unifi_network:
+        name: "{{ net }}"
+        management: UNMANAGED
+        enabled: false
+        vlan_id: 4000
+      register: r1
+    - ansible.builtin.assert: {that: r1.changed}
+
+    - name: Create again is idempotent
+      starnix.unifi.unifi_network:
+        name: "{{ net }}"
+        management: UNMANAGED
+        enabled: false
+        vlan_id: 4000
+      register: r2
+    - ansible.builtin.assert: {that: not r2.changed}
+
+    - name: Change the VLAN id
+      starnix.unifi.unifi_network:
+        name: "{{ net }}"
+        management: UNMANAGED
+        enabled: false
+        vlan_id: 4001
+      register: r3
+    - ansible.builtin.assert: {that: r3.changed}
+
+    - name: Change again is idempotent
+      starnix.unifi.unifi_network:
+        name: "{{ net }}"
+        management: UNMANAGED
+        enabled: false
+        vlan_id: 4001
+      register: r4
+    - ansible.builtin.assert: {that: not r4.changed}
+
+    - name: Delete
+      starnix.unifi.unifi_network: {name: "{{ net }}", state: absent}
+      register: rd
+    - ansible.builtin.assert: {that: rd.changed}
+
+    - name: Delete again is idempotent
+      starnix.unifi.unifi_network: {name: "{{ net }}", state: absent}
+      register: rd2
+    - ansible.builtin.assert: {that: not rd2.changed}
+
+  always:
+    - name: Teardown
+      starnix.unifi.unifi_network: {name: "{{ net }}", state: absent}

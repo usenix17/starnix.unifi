@@ -1,0 +1,45 @@
+---
+- name: unifi_firewall_zone integration
+  vars:
+    zone: zzz-iac-int-zone
+  module_defaults:
+    group/starnix.unifi.unifi:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+      site: default
+  block:
+    - name: Create an empty zone
+      starnix.unifi.unifi_firewall_zone: {name: "{{ zone }}", network_ids: []}
+      register: r1
+    - ansible.builtin.assert: {that: r1.changed}
+
+    - name: Create again is idempotent
+      starnix.unifi.unifi_firewall_zone: {name: "{{ zone }}", network_ids: []}
+      register: r2
+    - ansible.builtin.assert: {that: not r2.changed}
+
+    - name: Check mode on delete reports change but keeps the zone
+      starnix.unifi.unifi_firewall_zone: {name: "{{ zone }}", state: absent}
+      check_mode: true
+      register: rc
+    - ansible.builtin.assert: {that: rc.changed}
+
+    - name: Zone still present after check mode
+      starnix.unifi.unifi_firewall_zone: {name: "{{ zone }}", network_ids: []}
+      register: rc2
+    - ansible.builtin.assert: {that: not rc2.changed}
+
+    - name: Delete
+      starnix.unifi.unifi_firewall_zone: {name: "{{ zone }}", state: absent}
+      register: rd
+    - ansible.builtin.assert: {that: rd.changed}
+
+    - name: Delete again is idempotent
+      starnix.unifi.unifi_firewall_zone: {name: "{{ zone }}", state: absent}
+      register: rd2
+    - ansible.builtin.assert: {that: not rd2.changed}
+
+  always:
+    - name: Teardown
+      starnix.unifi.unifi_firewall_zone: {name: "{{ zone }}", state: absent}

@@ -37,7 +37,13 @@ Design doc: `~/ArgoCD/starnix_unifi_design.md`. Live schema ground truth:
       management corrected to {GATEWAY,UNMANAGED}; zoneId carried forward on
       update (bare PUT nulls it). 11 unit tests, verified live. **SCOPE: v1 has
       NO DHCP-DNS/subnet fields -> does NOT durably fix Aux DNS (needs classic API).**
-- [ ] `ansible-test sanity` clean; integration targets; CI matrix; Galaxy publish
+- [x] `ansible-test sanity` clean (24 tests, exit 0)
+- [x] integration targets (setup_unifi + schema_discovery + 7 module targets,
+      gated `unsupported`); all 8 pass via `ansible-test integration --local`
+- [x] CI: .github/workflows/ci.yml (sanity + units on 2.21, changelog gate,
+      self-hosted gated integration job); initial changelog fragment
+- [ ] Galaxy publish: bump to 1.0.0, `antsibull-changelog release`,
+      `ansible-galaxy collection build`, push to a GitHub repo, publish
 
 ## Notes / open API questions (confirm before the affected module ships)
 - `action.type`: is `REJECT` valid? (only ALLOW/BLOCK observed)

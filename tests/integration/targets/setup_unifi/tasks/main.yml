@@ -1,0 +1,22 @@
+---
+# Shared setup for the starnix.unifi integration targets. Pulled in as a
+# dependency by every module target. Resolves the API key (from
+# integration_config.yml's unifi_api_key, else the UNIFI_API_KEY environment
+# variable), guards on it, and publishes the connection facts the other
+# targets reuse via module_defaults.
+- name: Resolve the API key (config var, then environment)
+  ansible.builtin.set_fact:
+    unifi_api_key: >-
+      {{ unifi_api_key | default(lookup('env', 'UNIFI_API_KEY'), true) }}
+
+- name: Require an API key
+  ansible.builtin.assert:
+    that:
+      - unifi_api_key | length > 0
+    fail_msg: >-
+      Set unifi_api_key in tests/integration/integration_config.yml (or the
+      UNIFI_API_KEY environment variable) to run these integration tests.
+
+- name: Publish the controller host fact
+  ansible.builtin.set_fact:
+    unifi_host: "{{ unifi_host }}"

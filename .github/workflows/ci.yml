@@ -1,0 +1,83 @@
+---
+name: CI
+'on':
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanity:
+    name: Sanity (Ansible ${{ matrix.ansible }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible: [stable-2.21]
+    steps:
+      - name: Run sanity tests
+        uses: ansible-community/ansible-test-gh-action@release/v1
+        with:
+          ansible-core-version: ${{ matrix.ansible }}
+          testing-type: sanity
+          pull-request-change-detection: false
+
+  units:
+    name: Units (Ansible ${{ matrix.ansible }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible: [stable-2.21]
+    steps:
+      - name: Run unit tests
+        uses: ansible-community/ansible-test-gh-action@release/v1
+        with:
+          ansible-core-version: ${{ matrix.ansible }}
+          testing-type: units
+
+  changelog:
+    name: Changelog fragment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a changelog fragment when plugins change
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          changed="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+          if echo "$changed" | grep -q '^plugins/'; then
+            echo "$changed" | grep -qE '^changelogs/fragments/.+\.ya?ml$' || {
+              echo "::error::plugins/ changed but no changelogs/fragments/*.yml"
+              exit 1
+            }
+          fi
+
+  # Runs only on demand, on a self-hosted runner that can reach the controller.
+  # Requires the UNIFI_API_KEY secret. All targets are safe: they use throwaway
+  # zzz-iac-* resources (disabled/TEST-NET) and tear down in an always block.
+  integration:
+    name: Integration (live controller)
+    runs-on: [self-hosted, unifi]
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ansible_collections/starnix/unifi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install 'ansible-core>=2.21,<2.22'
+      - name: Run integration targets
+        working-directory: ansible_collections/starnix/unifi
+        run: |
+          printf -- '---\nunifi_api_key: "%s"\nunifi_host: "%s"\n' \
+            "${{ secrets.UNIFI_API_KEY }}" "${{ vars.UNIFI_HOST || '192.168.1.1' }}" \
+            > tests/integration/integration_config.yml
+          ansible-test integration --local --allow-unsupported -v

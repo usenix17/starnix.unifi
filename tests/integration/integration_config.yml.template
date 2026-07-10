@@ -1,0 +1,6 @@
+---
+# Copy to integration_config.yml and adjust for your controller.
+# The API key is read from the UNIFI_API_KEY environment variable, never
+# from this file. All targets are marked "unsupported" and run only when
+# explicitly requested (ansible-test integration --allow-unsupported).
+unifi_host: 192.168.1.1

@@ -1,0 +1,61 @@
+---
+# This module patches a live network, so the integration test never mutates:
+# it discovers a DHCP-serving network, re-applies its CURRENT DNS (a no-op),
+# and uses check_mode to prove change detection without writing.
+- name: unifi_network_dhcp integration (non-mutating)
+  module_defaults:
+    starnix.unifi.unifi_network_dhcp:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+  block:
+    - name: List classic networks
+      ansible.builtin.uri:
+        url: "https://{{ unifi_host }}/proxy/network/api/s/default/rest/networkconf"
+        headers:
+          X-API-KEY: "{{ unifi_api_key }}"
+        validate_certs: false
+      register: nc
+
+    - name: Pick a network that serves DHCP DNS
+      ansible.builtin.set_fact:
+        dhcp_net: >-
+          {{ (nc.json.data | selectattr('dhcpd_dns_enabled', 'defined')
+              | selectattr('dhcpd_dns_enabled') | list | first) | default({}) }}
+
+    - name: No DHCP-DNS network found -- nothing to test
+      ansible.builtin.debug:
+        msg: "No DHCP-serving network on this controller; skipping."
+      when: dhcp_net.name is not defined
+
+    - name: Exercise the module without mutating
+      when: dhcp_net.name is defined
+      vars:
+        cur_dns: >-
+          {{ [dhcp_net.dhcpd_dns_1 | default(''),
+              dhcp_net.dhcpd_dns_2 | default(''),
+              dhcp_net.dhcpd_dns_3 | default(''),
+              dhcp_net.dhcpd_dns_4 | default('')]
+             | select('truthy') | list }}
+      block:
+        - name: Re-applying the current DNS is a no-op
+          starnix.unifi.unifi_network_dhcp:
+            name: "{{ dhcp_net.name }}"
+            dns_servers: "{{ cur_dns }}"
+          register: noop
+        - ansible.builtin.assert: {that: not noop.changed}
+
+        - name: check_mode detects a DNS change but writes nothing
+          starnix.unifi.unifi_network_dhcp:
+            name: "{{ dhcp_net.name }}"
+            dns_servers: [203.0.113.53]
+          check_mode: true
+          register: cm
+        - ansible.builtin.assert: {that: cm.changed}
+
+        - name: The network's DNS is unchanged after check_mode
+          starnix.unifi.unifi_network_dhcp:
+            name: "{{ dhcp_net.name }}"
+            dns_servers: "{{ cur_dns }}"
+          register: after
+        - ansible.builtin.assert: {that: not after.changed}

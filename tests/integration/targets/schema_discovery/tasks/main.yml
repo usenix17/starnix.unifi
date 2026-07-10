@@ -1,0 +1,43 @@
+---
+# Build-prerequisite target: dumps the live shapes of the opaque objects
+# (trafficFilter, action, ipProtocolScope) so they can be confirmed against the
+# real controller before the policy/group modules are considered done.
+- name: schema_discovery
+  module_defaults:
+    group/starnix.unifi.unifi:
+      host: "{{ unifi_host }}"
+      api_key: "{{ unifi_api_key }}"
+      validate_certs: false
+  block:
+    - name: Resolve the site UUID
+      starnix.unifi.unifi_site_info:
+      register: info
+    - ansible.builtin.set_fact:
+        sid: "{{ info.sites[0].id }}"
+
+    - name: GET one firewall policy
+      ansible.builtin.uri:
+        url: >-
+          https://{{ unifi_host }}/proxy/network/integration/v1/sites/{{ sid }}/firewall/policies?limit=1
+        headers:
+          X-API-KEY: "{{ unifi_api_key }}"
+        validate_certs: false
+      register: pol
+
+    - name: GET one traffic-matching list
+      ansible.builtin.uri:
+        url: >-
+          https://{{ unifi_host }}/proxy/network/integration/v1/sites/{{ sid }}/traffic-matching-lists?limit=1
+        headers:
+          X-API-KEY: "{{ unifi_api_key }}"
+        validate_certs: false
+      register: lists
+
+    - name: Dump the live opaque shapes
+      ansible.builtin.debug:
+        msg:
+          - "action:          {{ pol.json.data[0].action | default('(none)') }}"
+          - "trafficFilter:   {{ pol.json.data[0].source.trafficFilter | default('(none)') }}"
+          - "ipProtocolScope: {{ pol.json.data[0].ipProtocolScope | default('(none)') }}"
+          - "metadata:        {{ pol.json.data[0].metadata | default('(none)') }}"
+          - "list item:       {{ lists.json.data[0]['items'][0] | default('(none)') }}"
