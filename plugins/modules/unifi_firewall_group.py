@@ -1,15 +1,8 @@
 # -*- coding: utf-8 -*-
 # Copyright: (c) 2026, Sasha Karcz <sasha@starnix.net>
-# GPL-3.0-or-later (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# GNU General Public License v3.0+ (see LICENSE or gnu.org/licenses/gpl-3.0)
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Manage UniFi traffic-matching lists (address/port groups)."""
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
-    UniFiError,
-    UniFiModule,
-    needs_update,
-    unifi_argument_spec,
-)
 
 DOCUMENTATION = r"""
 module: unifi_firewall_group
@@ -47,9 +40,8 @@ options:
   items:
     description:
       - The list members, sent to the API verbatim. Each element is a dict with
-        C(type) and C(value) keys, e.g. V({type: IP_ADDRESS, value:
-        192.168.1.10}), V({type: SUBNET, value: 10.0.0.0/8}), or V({type:
-        PORT_NUMBER, value: 443}).
+        C(type) and C(value) keys -- for example type C(IP_ADDRESS) with an IP
+        value, type C(SUBNET) with a CIDR, or type C(PORT_NUMBER) with a port.
       - Required and must be non-empty when O(state=present). Comparison is
         order-sensitive.
     type: list
@@ -102,6 +94,16 @@ firewall_group:
     items:
       - { type: "IP_ADDRESS", value: "192.168.1.53" }
 """
+
+# Imports follow the documentation variables, as required by ansible-test
+# validate-modules.
+from ansible.module_utils.basic import AnsibleModule
+from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
+    UniFiError,
+    UniFiModule,
+    needs_update,
+    unifi_argument_spec,
+)
 
 
 def find_current(um, list_path, group_id, name):

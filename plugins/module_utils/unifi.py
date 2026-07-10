@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright: (c) 2026, Sasha Karcz <sasha@starnix.net>
-# GPL-3.0-or-later (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# GNU General Public License v3.0+ (see LICENSE or gnu.org/licenses/gpl-3.0)
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Shared HTTP client, argument spec, and diff helpers for starnix.unifi.
 
 Targets the official UniFi Network Integration API (v1)::

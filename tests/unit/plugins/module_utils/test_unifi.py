@@ -167,7 +167,7 @@ def test_subset_equal_detects_declared_drift():
 
 def test_needs_update_set_keys_order_insensitive():
     """Set-typed fields compare by membership, not order."""
-    changed, _ = unifi.needs_update(
+    changed, _diff = unifi.needs_update(
         {"networkIds": ["a", "b"]}, {"networkIds": ["b", "a"]},
         set_keys={"networkIds"})
     assert changed is False

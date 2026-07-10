@@ -1,16 +1,8 @@
 # -*- coding: utf-8 -*-
 # Copyright: (c) 2026, Sasha Karcz <sasha@starnix.net>
-# GPL-3.0-or-later (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# GNU General Public License v3.0+ (see LICENSE or gnu.org/licenses/gpl-3.0)
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Manage UniFi zone-based firewall policies."""
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
-    UniFiError,
-    UniFiModule,
-    needs_update,
-    prune,
-    unifi_argument_spec,
-)
 
 DOCUMENTATION = r"""
 module: unifi_firewall_policy
@@ -59,12 +51,12 @@ options:
   action:
     description:
       - The policy action, sent verbatim. Required when O(state=present).
-      - Schema is not documented by the export; e.g. V({type: ALLOW,
-        allowReturnTraffic: false}) or V({type: BLOCK}).
+      - Its schema is not documented by the export; for example an action of
+        C(type) ALLOW (optionally with C(allowReturnTraffic)) or C(type) BLOCK.
     type: dict
   source:
     description:
-      - The source match, sent verbatim: a dict with C(zoneId) and an optional
+      - The source match, sent verbatim; a dict with C(zoneId) and an optional
         C(trafficFilter). Required when O(state=present).
       - Zone names are not resolved; pass the zone UUID. Obtain a working
         C(trafficFilter) shape from an existing policy.
@@ -76,8 +68,8 @@ options:
     type: dict
   ip_protocol_scope:
     description:
-      - Maps to C(ipProtocolScope), sent verbatim, e.g. V({ipVersion: IPV4}) or
-        V({ipVersion: IPV4_AND_IPV6}). Required when O(state=present).
+      - Maps to C(ipProtocolScope), sent verbatim, for example C(ipVersion)
+        IPV4 or IPV4_AND_IPV6. Required when O(state=present).
     type: dict
   connection_state_filter:
     description:
@@ -147,6 +139,18 @@ firewall_policy:
     action: { type: "ALLOW", allowReturnTraffic: false }
     metadata: { origin: "USER_DEFINED" }
 """
+
+# Imports follow the documentation variables, as required by ansible-test
+# validate-modules.
+from ansible.module_utils.basic import AnsibleModule
+from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
+    UniFiError,
+    UniFiModule,
+    needs_update,
+    prune,
+    unifi_argument_spec,
+)
+
 
 _REQUIRED_ON_PRESENT = ("action", "source", "destination", "ip_protocol_scope")
 

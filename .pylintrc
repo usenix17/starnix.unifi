@@ -4,9 +4,11 @@
 init-hook='import os, sys; sys.path.insert(0, os.path.abspath("../../.."))'
 
 [MESSAGES CONTROL]
-# R0801 (duplicate-code) fires on the small, repeated test-double boilerplate
-# across unit tests; it is noisy by design there and not actionable.
-disable=duplicate-code
+# R0801 (duplicate-code): the small repeated test-double boilerplate across unit
+#   tests is noisy by design and not actionable.
+# C0413 (wrong-import-position): ansible-test validate-modules requires module
+#   imports below the DOCUMENTATION/EXAMPLES/RETURN vars, which trips C0413.
+disable=duplicate-code,wrong-import-position
 
 [FORMAT]
 max-line-length=79

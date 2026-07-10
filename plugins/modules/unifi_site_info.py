@@ -1,14 +1,8 @@
 # -*- coding: utf-8 -*-
 # Copyright: (c) 2026, Sasha Karcz <sasha@starnix.net>
-# GPL-3.0-or-later (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# GNU General Public License v3.0+ (see LICENSE or gnu.org/licenses/gpl-3.0)
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Return UniFi controller info and the site list (read-only)."""
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
-    UniFiError,
-    UniFiModule,
-    unifi_argument_spec,
-)
 
 DOCUMENTATION = r"""
 module: unifi_site_info
@@ -58,6 +52,15 @@ sites:
       internalReference: "default"
       name: "Default"
 """
+
+# Imports follow the documentation variables, as required by ansible-test
+# validate-modules.
+from ansible.module_utils.basic import AnsibleModule
+from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
+    UniFiError,
+    UniFiModule,
+    unifi_argument_spec,
+)
 
 
 def run(um):

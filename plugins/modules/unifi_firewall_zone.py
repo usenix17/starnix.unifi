@@ -1,15 +1,8 @@
 # -*- coding: utf-8 -*-
 # Copyright: (c) 2026, Sasha Karcz <sasha@starnix.net>
-# GPL-3.0-or-later (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
+# GNU General Public License v3.0+ (see LICENSE or gnu.org/licenses/gpl-3.0)
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Manage UniFi firewall zones."""
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
-    UniFiError,
-    UniFiModule,
-    needs_update,
-    unifi_argument_spec,
-)
 
 DOCUMENTATION = r"""
 module: unifi_firewall_zone
@@ -80,6 +73,16 @@ firewall_zone:
     networkIds: ["7f6409fa-8689-4e65-8e66-cd1787c4de78"]
     metadata: { origin: "USER_DEFINED" }
 """
+
+# Imports follow the documentation variables, as required by ansible-test
+# validate-modules.
+from ansible.module_utils.basic import AnsibleModule
+from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
+    UniFiError,
+    UniFiModule,
+    needs_update,
+    unifi_argument_spec,
+)
 
 
 def find_current(um, zone_path, zone_id, name):
