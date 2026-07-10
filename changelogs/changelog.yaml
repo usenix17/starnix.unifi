@@ -1,0 +1,44 @@
+ancestor: null
+releases:
+  0.1.0:
+    changes:
+      release_summary: 'Initial development release of the ``starnix.unifi`` collection.
+        Modules for
+
+        the UniFi zone-based (Policy Engine) firewall -- zones, policies, policy
+
+        ordering, and traffic-matching lists -- and for networks, on the official
+        v1
+
+        Integration API, plus a classic-API module for DHCP options (DNS, NTP,
+
+        network boot, and more). Includes unit tests, gated integration targets, and
+
+        CI.
+
+        '
+    fragments:
+    - initial.yml
+    modules:
+    - description: Manage UniFi traffic\-matching lists (address/port groups)
+      name: unifi_firewall_group
+      namespace: ''
+    - description: Manage UniFi zone\-based firewall policies
+      name: unifi_firewall_policy
+      namespace: ''
+    - description: Set UniFi firewall policy evaluation order for a zone pair
+      name: unifi_firewall_policy_order
+      namespace: ''
+    - description: Manage UniFi firewall zones
+      name: unifi_firewall_zone
+      namespace: ''
+    - description: Manage UniFi networks (VLANs)
+      name: unifi_network
+      namespace: ''
+    - description: Manage a UniFi network's DHCP options (DNS, NTP, boot, ...)
+      name: unifi_network_dhcp
+      namespace: ''
+    - description: Return UniFi controller info and the list of sites
+      name: unifi_site_info
+      namespace: ''
+    release_date: '2026-07-09'

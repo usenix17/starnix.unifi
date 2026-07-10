@@ -1,8 +1,0 @@
----
-release_summary: |
-  Initial development release of the ``starnix.unifi`` collection. Modules for
-  the UniFi zone-based (Policy Engine) firewall -- zones, policies, policy
-  ordering, and traffic-matching lists -- and for networks, on the official v1
-  Integration API, plus a classic-API module for DHCP options (DNS, NTP,
-  network boot, and more). Includes unit tests, gated integration targets, and
-  CI.

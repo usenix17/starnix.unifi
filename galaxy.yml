@@ -20,7 +20,9 @@ repository: https://github.com/usenix17/starnix.unifi
 issues: https://github.com/usenix17/starnix.unifi/issues
 build_ignore:
   - .github
+  - .pytest_cache
   - tests/output
+  - tests/integration/integration_config.yml
   - tasks
   - "*.tar.gz"
 dependencies: {}
