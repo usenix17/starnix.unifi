@@ -1,0 +1,7 @@
+*.pyc
+__pycache__/
+*.tar.gz
+.pytest_cache/
+.mypy_cache/
+tests/output/
+*.retry

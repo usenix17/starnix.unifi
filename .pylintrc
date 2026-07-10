@@ -1,0 +1,16 @@
+[MAIN]
+# Modules import ansible-core at runtime; keep pylint from choking on the
+# dynamically-provided collection loader paths.
+ignore-paths=^tests/.*$
+
+[FORMAT]
+max-line-length=79
+
+[DESIGN]
+# An HTTP client constructor legitimately takes the full connection tuple.
+max-args=10
+max-positional-arguments=10
+max-attributes=10
+
+[BASIC]
+good-names=i,j,k,ex,_,e

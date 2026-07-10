@@ -1,0 +1,26 @@
+namespace: starnix
+name: unifi
+version: 0.1.0
+readme: README.md
+authors:
+  - Sasha Karcz <sasha@starnix.net>
+description: >-
+  Manage the UniFi zone-based firewall (zones, policies, policy ordering,
+  address/port matching lists) and networks through the official UniFi
+  Network Integration API (v1).
+license:
+  - GPL-3.0-or-later
+tags:
+  - networking
+  - firewall
+  - unifi
+  - ubiquiti
+  - security
+repository: https://github.com/usenix17/starnix.unifi
+issues: https://github.com/usenix17/starnix.unifi/issues
+build_ignore:
+  - .github
+  - tests/output
+  - tasks
+  - "*.tar.gz"
+dependencies: {}

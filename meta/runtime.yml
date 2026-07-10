@@ -1,0 +1,15 @@
+---
+# Matches the ansible-core version the CI matrix actually tests (design finding
+# R10/R6/R16b). Bump only when a newer floor is exercised in CI.
+requires_ansible: ">=2.21.0"
+
+# The `unifi` action group lets a play set connection params once via
+# `module_defaults: {group/starnix.unifi.unifi: {host: ..., api_key: ...}}`.
+action_groups:
+  unifi:
+    - unifi_firewall_zone
+    - unifi_firewall_group
+    - unifi_firewall_policy
+    - unifi_firewall_policy_order
+    - unifi_network
+    - unifi_site_info
