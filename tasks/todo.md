@@ -31,7 +31,7 @@ Design doc: `~/ArgoCD/starnix_unifi_design.md`. Live schema ground truth:
       bet).** Probed create/update body first (disabled policy, zero impact).
 
 ## Next
-- [ ] `unifi_firewall_zone`
+- [x] `unifi_firewall_zone` -- {name, networkIds}; networkIds required (default []), order-insensitive; system-zone rejection deferred to API. 9 unit tests, verified live (zones back to 7).
 - [ ] `unifi_firewall_policy_order` -- wraps the ordering endpoint
 - [ ] `unifi_network` -- probe the network write schema first
 - [ ] `ansible-test sanity` clean; integration targets; CI matrix; Galaxy publish
