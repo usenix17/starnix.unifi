@@ -74,7 +74,8 @@ options:
   connection_state_filter:
     description:
       - Maps to C(connectionStateFilter). Omit to match all states. Compared as
-        an unordered set.
+        an unordered set (as are C(networkIds), C(items) and C(domains) inside
+        O(source) and O(destination), which the controller may reorder).
     type: list
     elements: str
     choices: [NEW, INVALID, ESTABLISHED, RELATED]
@@ -144,6 +145,7 @@ firewall_policy:
 # validate-modules.
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
+    POLICY_SET_KEYS,
     UniFiError,
     UniFiModule,
     needs_update,
@@ -212,8 +214,7 @@ def _present(um, pol_path, current):
         result = body if check else um.client.post(pol_path, body=body)
         um.module.exit_json(changed=True, firewall_policy=result, diff=diff)
 
-    changed, diff = needs_update(body, current,
-                                 set_keys={"connectionStateFilter"})
+    changed, diff = needs_update(body, current, set_keys=POLICY_SET_KEYS)
     if not changed:
         um.module.exit_json(changed=False, firewall_policy=current, diff=diff)
     if check:

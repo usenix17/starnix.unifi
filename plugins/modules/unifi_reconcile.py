@@ -159,6 +159,7 @@ import re
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.starnix.unifi.plugins.module_utils.unifi import (
+    POLICY_SET_KEYS,
     UniFiClient,
     UniFiError,
     needs_update,
@@ -490,8 +491,7 @@ def _reconcile_v1(params, opts, changes):
         (f"{base}/networks", nets, params["networks"],
          ("networks", _network_body, (), _resolve_network)),
         (f"{base}/firewall/policies", pols, params["policies"],
-         ("policies", _policy_body, ("connectionStateFilter",),
-          _resolve_policy)),
+         ("policies", _policy_body, POLICY_SET_KEYS, _resolve_policy)),
     ]
     for path, current, desired, spec in plan:
         _reconcile_collection(client, path, current, desired, spec, maps, opts,
