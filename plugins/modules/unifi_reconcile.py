@@ -23,7 +23,8 @@ description:
     So the desired lists never contain UUIDs."
   - Matching is by C(name) (unique). Only user-defined zones and policies are
     considered. DHCP patches existing networks by name; unknown names are
-    skipped. The classic API is used for DHCP (see O(classic_site)).
+    skipped. The classic API is used for DHCP and static routes, and the v2
+    API for traffic routes (see O(classic_site)).
 author:
   - Sasha Karcz (@usenix17)
 extends_documentation_fragment:
@@ -70,16 +71,36 @@ options:
     type: list
     elements: dict
     default: []
+  static_routes:
+    description:
+      - Desired static routes, matched by C(name). Each element has C(name),
+        C(network) (CIDR), C(type) (V(nexthop-route), V(interface-route) or
+        V(blackhole)), C(next_hop), C(interface), C(distance) and C(enabled)
+        (default V(true)).
+    type: list
+    elements: dict
+    default: []
+  traffic_routes:
+    description:
+      - Desired policy-based traffic routes, matched by C(description) (the
+        UI name). C(network_id) is the B(name) of the egress network (e.g. a
+        WAN); every other key (C(matching_target), C(ip_addresses),
+        C(target_devices), C(kill_switch_enabled), ...) is passed through
+        verbatim.
+    type: list
+    elements: dict
+    default: []
   classic_site:
     description:
-      - Classic-API site B(name) used for the O(dhcp) reconcile (the v1 O(site)
-        does not apply there).
+      - Classic-API site B(name) used for the O(dhcp), O(static_routes) and
+        O(traffic_routes) reconciles (the v1 O(site) does not apply there).
     type: str
     default: default
   prune:
     description:
-      - Delete user-defined groups/zones/networks/policies that are not in the
-        desired lists. Off by default; ordering and DHCP are never pruned.
+      - Delete user-defined groups/zones/networks/policies and static/traffic
+        routes that are not in the desired lists. Off by default; ordering
+        and DHCP are never pruned.
     type: bool
     default: false
   max_delete:
@@ -101,11 +122,29 @@ EXAMPLES = r"""
     policies: "{{ unifi_policies }}"
     ordering: "{{ unifi_ordering }}"
     dhcp: "{{ unifi_dhcp }}"
+    static_routes:
+      - name: Nebula
+        network: 100.69.0.0/22
+        type: nexthop-route
+        next_hop: 192.168.1.56
+        distance: 2
+    traffic_routes:
+      - description: Cloudflare Tunnel QUIC via CenturyLink
+        enabled: true
+        matching_target: IP
+        network_id: CenturyLink
+        ip_addresses:
+          - {ip_or_subnet: 198.41.192.0/24, ip_version: v4, ports: [7844],
+             port_ranges: []}
+        target_devices: [{type: ALL_CLIENTS}]
+        kill_switch_enabled: false
 """
 
 RETURN = r"""
 changes:
-  description: One entry per resource this run created, updated, or deleted.
+  description:
+    - One entry per resource this run created, updated, or deleted.
+    - For traffic routes, C(name) is the route's C(description).
   type: list
   elements: dict
   returned: success
@@ -115,6 +154,7 @@ changes:
 
 # Imports follow the documentation variables, as required by ansible-test
 # validate-modules.
+import functools
 import re
 
 from ansible.module_utils.basic import AnsibleModule
@@ -132,6 +172,12 @@ _UUID_RE = re.compile(
 _DHCP_SLOTS = {"dns_servers": ("dhcpd_dns", 4),
                "ntp_servers": ("dhcpd_ntp", 2),
                "wins_servers": ("dhcpd_wins", 2)}
+
+_ROUTE_FIELDS = {"network": "static-route_network",
+                 "type": "static-route_type",
+                 "next_hop": "static-route_nexthop",
+                 "interface": "static-route_interface",
+                 "distance": "static-route_distance"}
 
 
 def _name_map(objects):
@@ -237,18 +283,47 @@ def _policy_body(item):
     })
 
 
-def _prune_collection(client, base, param, current, wanted, opts, changes):
-    """Delete managed objects of one type that are not in the desired set."""
-    stale = [o for o in current if o["name"] not in wanted]
+def _static_route_body(item):
+    """Map a desired static route to its classic rest/routing fields."""
+    body = {"name": item["name"], "enabled": item.get("enabled", True),
+            "type": "static-route"}
+    for key, field in _ROUTE_FIELDS.items():
+        if item.get(key) is not None:
+            body[field] = item[key]
+    return body
+
+
+def _traffic_route_body(item, net_ids):
+    """Resolve a traffic route's egress network name; pass the rest through.
+
+    Classic network ids are not UUIDs, so a value that is already one of them
+    passes through as well.
+    """
+    body = {"enabled": True, **item}
+    net = body.get("network_id")
+    if net and net not in net_ids.values():
+        body["network_id"] = _resolve(net, net_ids)
+    return body
+
+
+def _prune_collection(client, base, param, current, wanted, opts, changes,
+                      keys=("name", "id")):
+    """Delete managed objects of one type that are not in the desired set.
+
+    ``keys`` is the (match key, id key) pair: ``("name", "id")`` for v1,
+    ``("name", "_id")`` / ``("description", "_id")`` for classic/v2 routes.
+    """
+    match, ident = keys
+    stale = [o for o in current if o.get(match) not in wanted]
     if len(stale) > opts["max_delete"]:
         raise UniFiError(
             f"prune would delete {len(stale)} {param} (> max_delete="
             f"{opts['max_delete']}); aborting. Raise max_delete to proceed.")
     for obj in stale:
         if not opts["check"]:
-            client.delete(f"{base}/{obj['id']}")
+            client.delete(f"{base}/{obj[ident]}")
         changes.append({"type": param, "action": "delete",
-                        "name": obj["name"]})
+                        "name": obj.get(match)})
 
 
 def _reconcile_collection(client, base, current, desired, spec, maps, opts,
@@ -335,6 +410,59 @@ def _reconcile_dhcp(client, classic_site, desired, opts, changes):
                             "name": item["name"]})
 
 
+def _reconcile_by_key(client, base, current, desired, spec, opts, changes):
+    """Create/update (and optionally prune) a classic/v2 collection.
+
+    Objects are matched on ``spec``'s key and addressed by ``_id``. Updates
+    PUT the live object overlaid with the desired fields, so server-managed
+    fields survive.
+    """
+    param, key, build = spec
+    by_key = {}
+    for obj in current:
+        by_key.setdefault(obj.get(key), obj)
+    wanted = set()
+    for item in desired:
+        if not item.get(key):
+            raise UniFiError(f"every {param} item needs a {key!r}")
+        wanted.add(item[key])
+        body = build(item)
+        cur = by_key.get(item[key])
+        if cur is None:
+            if not opts["check"]:
+                client.post(base, body=body)
+            changes.append({"type": param, "action": "create",
+                            "name": item[key]})
+        elif needs_update(body, cur)[0]:
+            if not opts["check"]:
+                client.put(f"{base}/{cur['_id']}", body={**cur, **body})
+            changes.append({"type": param, "action": "update",
+                            "name": item[key]})
+    if opts["prune"]:
+        _prune_collection(client, base, param, current, wanted, opts, changes,
+                          keys=(key, "_id"))
+
+
+def _reconcile_routes(client, params, opts, changes):
+    """Reconcile static routes (classic API) and traffic routes (v2 API)."""
+    site = params["classic_site"]
+    if params["static_routes"]:
+        base = f"/api/s/{site}/rest/routing"
+        current = client.get(base).get("data", []) or []
+        _reconcile_by_key(client, base, current, params["static_routes"],
+                          ("static_routes", "name", _static_route_body),
+                          opts, changes)
+    if params["traffic_routes"]:
+        nets = client.get(f"/api/s/{site}/rest/networkconf").get("data", [])
+        net_ids = {n["name"]: n["_id"] for n in nets or []}
+        base = f"/v2/api/site/{site}/trafficroutes"
+        current = client.get(base) or []
+        build = functools.partial(_traffic_route_body, net_ids=net_ids)
+        _reconcile_by_key(client, base, current, params["traffic_routes"],
+                          ("traffic_routes", "description", build),
+                          opts, changes)
+
+
 def _client(params, base_path):
     """Build a UniFiClient for the given API base path."""
     return UniFiClient(
@@ -381,10 +509,12 @@ def run(module):
     if any(params[t] for t in
            ("groups", "zones", "networks", "policies", "ordering")):
         _reconcile_v1(params, opts, changes)
-    if params["dhcp"]:
+    if any(params[t] for t in ("dhcp", "static_routes", "traffic_routes")):
         classic = _client(params, "/proxy/network")
-        _reconcile_dhcp(classic, params["classic_site"], params["dhcp"],
-                        opts, changes)
+        if params["dhcp"]:
+            _reconcile_dhcp(classic, params["classic_site"], params["dhcp"],
+                            opts, changes)
+        _reconcile_routes(classic, params, opts, changes)
     module.exit_json(changed=bool(changes), changes=changes)
 
 
@@ -392,7 +522,7 @@ def main():
     """Module entry point."""
     spec = unifi_argument_spec()
     for name in ("groups", "zones", "networks", "policies", "ordering",
-                 "dhcp"):
+                 "dhcp", "static_routes", "traffic_routes"):
         spec[name] = {"type": "list", "elements": "dict", "default": []}
     spec.update(
         classic_site={"type": "str", "default": "default"},
