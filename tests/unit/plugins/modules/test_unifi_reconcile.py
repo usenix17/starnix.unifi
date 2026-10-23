@@ -178,6 +178,39 @@ def test_policy_resolution_through_reconcile():
     assert not changes  # "Internal" resolved to zid -> matches -> no-op
 
 
+def test_policy_list_order_is_not_drift():
+    """Reordered networkIds/items are a no-op; changed members still update."""
+    spec = ("policies", rec._policy_body, unifi.POLICY_SET_KEYS, None)
+    ips = [{"type": "IP_ADDRESS", "value": v} for v in ("a", "b", "c")]
+    live = {"id": "p1", "name": "P", "enabled": True,
+            "action": {"type": "ALLOW"}, "loggingEnabled": False,
+            "source": {"zoneId": "z", "trafficFilter": {
+                "type": "NETWORK", "networkFilter": {
+                    "networkIds": ["n3", "n1", "n2"]}}},
+            "destination": {"zoneId": "z", "trafficFilter": {
+                "type": "IP_ADDRESS",
+                "ipAddressFilter": {"items": ips[::-1]}}}}
+
+    def want(nets, items):
+        return {"name": "P", "enabled": True, "action": {"type": "ALLOW"},
+                "source": {"zoneId": "z", "trafficFilter": {
+                    "type": "NETWORK",
+                    "networkFilter": {"networkIds": nets}}},
+                "destination": {"zoneId": "z", "trafficFilter": {
+                    "type": "IP_ADDRESS",
+                    "ipAddressFilter": {"items": items}}}}
+
+    changes = []
+    rec._reconcile_collection(FakeClient(), "/b", [live],
+                              [want(["n1", "n2", "n3"], ips)], spec, {},
+                              _opts(), changes)
+    assert not changes
+    rec._reconcile_collection(FakeClient(), "/b", [live],
+                              [want(["n1", "n2"], ips)], spec, {},
+                              _opts(), changes)
+    assert changes == [{"type": "policies", "action": "update", "name": "P"}]
+
+
 def test_prune_deletes_and_guards():
     """Prune deletes unlisted; beyond max_delete it aborts."""
     current = [{"id": "g1", **_group("keep", "1.1.1.1")},

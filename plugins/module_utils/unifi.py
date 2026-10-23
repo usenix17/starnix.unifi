@@ -242,6 +242,12 @@ class UniFiModule:
         )
 
 
+# Policy list fields the controller treats as sets and may reorder on save;
+# compared order-insensitively so a reordered read-back is not drift.
+POLICY_SET_KEYS = frozenset({"connectionStateFilter", "networkIds", "items",
+                             "domains"})
+
+
 def prune(value):
     """Recursively drop ``None`` so an omitted key equals a not-set key."""
     if isinstance(value, dict):

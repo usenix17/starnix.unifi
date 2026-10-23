@@ -1,0 +1,6 @@
+---
+bugfixes:
+  - unifi_firewall_policy, unifi_reconcile - compare a policy's ``networkIds``,
+    ``items`` and ``domains`` lists order-insensitively. The controller
+    reorders them on save, so policies whose members were unchanged were
+    reported (and rewritten) as drift on every run.
