@@ -222,3 +222,161 @@ def test_dhcp_patch_and_noop():
                         [{"name": "Aux", "dns_servers": ["1.1.1.1"]}],
                         _opts(), changes)
     assert not changes
+
+
+# -- static + traffic routes ----------------------------------------------
+class RouteClient(FakeClient):
+    """Serve classic routing/networkconf and v2 trafficroutes reads."""
+
+    def __init__(self, static=None, traffic=None, nets=None):
+        super().__init__()
+        self.static = static or []
+        self.traffic = traffic or []
+        self.nets = nets or []
+
+    def get(self, path, query=None):
+        """Route reads to the canned collections."""
+        self.calls.append(("get", path))
+        if path.endswith("/rest/routing"):
+            return {"data": self.static}
+        if path.endswith("/rest/networkconf"):
+            return {"data": self.nets}
+        return self.traffic
+
+
+_NETS = [{"_id": "wan1", "name": "CenturyLink"},
+         {"_id": "wan2", "name": "FiberFirst"}]
+
+_LIVE_STATIC = {"_id": "r1", "name": "Nebula", "enabled": True,
+                "type": "static-route", "static-route_type": "nexthop-route",
+                "static-route_network": "100.69.0.0/22",
+                "static-route_nexthop": "192.168.1.56",
+                "static-route_distance": 2, "site_id": "s",
+                "gateway_device": "aa:bb", "gateway_type": "default"}
+
+
+def _nebula(**over):
+    item = {"name": "Nebula", "network": "100.69.0.0/22",
+            "type": "nexthop-route", "next_hop": "192.168.1.56",
+            "distance": 2}
+    item.update(over)
+    return item
+
+
+def _cf_route(**over):
+    item = {"description": "CF", "matching_target": "IP",
+            "network_id": "CenturyLink", "kill_switch_enabled": False,
+            "ip_addresses": [{"ip_or_subnet": "198.41.192.0/24",
+                              "ip_version": "v4", "ports": [7844],
+                              "port_ranges": []}],
+            "target_devices": [{"type": "ALL_CLIENTS"}]}
+    item.update(over)
+    return item
+
+
+def _params(**over):
+    base = {"classic_site": "default", "static_routes": [],
+            "traffic_routes": []}
+    base.update(over)
+    return base
+
+
+def test_static_route_body_maps_fields():
+    """Friendly keys map to static-route_* fields; unset keys are omitted."""
+    body = rec._static_route_body(_nebula())
+    assert body == {"name": "Nebula", "enabled": True, "type": "static-route",
+                    "static-route_type": "nexthop-route",
+                    "static-route_network": "100.69.0.0/22",
+                    "static-route_nexthop": "192.168.1.56",
+                    "static-route_distance": 2}
+    hole = rec._static_route_body({"name": "B", "network": "203.0.113.0/24",
+                                   "type": "blackhole", "distance": 1,
+                                   "enabled": False})
+    assert "static-route_nexthop" not in hole and hole["enabled"] is False
+
+
+def test_static_route_noop_against_live():
+    """A route matching the live object (plus server fields) is a no-op."""
+    client = RouteClient(static=[_LIVE_STATIC])
+    changes = []
+    rec._reconcile_routes(client, _params(static_routes=[_nebula()]),
+                          _opts(), changes)
+    assert not changes and not _did(client, "put")
+
+
+def test_static_route_update_overlays_live_object():
+    """An update PUTs the live object with only the desired fields changed."""
+    client = RouteClient(static=[_LIVE_STATIC])
+    changes = []
+    rec._reconcile_routes(client, _params(static_routes=[_nebula(
+        next_hop="192.168.1.99")]), _opts(), changes)
+    assert changes == [{"type": "static_routes", "action": "update",
+                        "name": "Nebula"}]
+    verb, path, body = client.calls[-1][:3]
+    assert (verb, path) == ("put", "/api/s/default/rest/routing/r1")
+    assert body["static-route_nexthop"] == "192.168.1.99"
+    assert body["gateway_device"] == "aa:bb"
+
+
+def test_traffic_route_create_resolves_network_name():
+    """A missing traffic route is created with its WAN name resolved."""
+    client = RouteClient(nets=_NETS)
+    changes = []
+    rec._reconcile_routes(client, _params(traffic_routes=[_cf_route()]),
+                          _opts(), changes)
+    assert changes == [{"type": "traffic_routes", "action": "create",
+                        "name": "CF"}]
+    verb, path, body = client.calls[-1]
+    assert (verb, path) == ("post", "/v2/api/site/default/trafficroutes")
+    assert body["network_id"] == "wan1" and body["enabled"] is True
+
+
+def test_traffic_route_noop_update_and_id_passthrough():
+    """Matching live route is a no-op; a raw network id passes through."""
+    live = {"_id": "t1", "enabled": True, "domains": [], "regions": [],
+            "ip_ranges": [], "next_hop": "",
+            **_cf_route(network_id="wan1")}
+    client = RouteClient(traffic=[live], nets=_NETS)
+    changes = []
+    rec._reconcile_routes(client, _params(traffic_routes=[_cf_route()]),
+                          _opts(), changes)
+    assert not changes
+    rec._reconcile_routes(client, _params(traffic_routes=[_cf_route(
+        network_id="wan2")]), _opts(), changes)
+    assert changes[0]["action"] == "update"
+    assert client.calls[-1][2]["network_id"] == "wan2"
+
+
+def test_traffic_route_unknown_network_fails():
+    """An unknown egress network name is an error, not a silent create."""
+    with pytest.raises(unifi.UniFiError):
+        rec._reconcile_routes(RouteClient(nets=_NETS), _params(
+            traffic_routes=[_cf_route(network_id="Nope")]), _opts(), [])
+
+
+def test_routes_check_mode_and_missing_key():
+    """check mode writes nothing; an item without its match key fails."""
+    client = RouteClient(nets=_NETS)
+    changes = []
+    rec._reconcile_routes(client, _params(static_routes=[_nebula()],
+                                          traffic_routes=[_cf_route()]),
+                          _opts(check=True), changes)
+    assert len(changes) == 2 and not _did(client, "post")
+    with pytest.raises(unifi.UniFiError):
+        rec._reconcile_routes(client, _params(
+            traffic_routes=[{"matching_target": "IP"}]), _opts(), [])
+
+
+def test_route_prune_deletes_by_id_and_guards():
+    """Prune removes unlisted routes by _id and honors max_delete."""
+    stray = dict(_LIVE_STATIC, _id="r2", name="Old")
+    client = RouteClient(static=[_LIVE_STATIC, stray])
+    changes = []
+    rec._reconcile_routes(client, _params(static_routes=[_nebula()]),
+                          _opts(prune=True), changes)
+    assert changes == [{"type": "static_routes", "action": "delete",
+                        "name": "Old"}]
+    assert ("delete", "/api/s/default/rest/routing/r2") in client.calls
+    with pytest.raises(unifi.UniFiError):
+        rec._reconcile_routes(client, _params(static_routes=[_nebula()]),
+                              _opts(prune=True, max_delete=0), [])

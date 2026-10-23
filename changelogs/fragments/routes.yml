@@ -1,0 +1,8 @@
+---
+minor_changes:
+  - unifi_reconcile - add ``static_routes`` (classic ``rest/routing``) and
+    ``traffic_routes`` (v2 policy-based traffic routes). Static routes match
+    by ``name``, traffic routes by ``description``, and a traffic route's
+    ``network_id`` is given as the egress network's name. Updates overlay
+    the live object so server-managed fields survive, and ``prune`` /
+    ``max_delete`` apply to both.
